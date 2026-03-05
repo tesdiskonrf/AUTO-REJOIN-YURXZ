@@ -269,46 +269,113 @@ def check_package_installed(package_name):
     return success and package_name in output
 
 def find_roblox_packages():
-    browsers = {}
-    success, output = run_root_cmd('pm list packages')
-    if success:
-        for line in output.splitlines():
-            if 'com.roblox' in line and 'package:' in line:
-                pkg = line.replace('package:', '').strip()
-                browsers[f"Roblox ({pkg})"] = pkg
-    
-    if not browsers:
-        browsers['Roblox App'] = 'com.roblox.client'
-        
+    # Semua kemungkinan package Roblox + executor populer
+    KNOWN_PACKAGES = {
+        # Roblox Official
+        'com.roblox.client':           'Roblox Official',
+        # Executors & Modded
+        'com.ronix.client':            'Ronix',
+        'com.albert.client':           'Albert',
+        'com.albert.1':                'Albert (v1)',
+        'com.delta.client':            'Delta',
+        'com.codex.client':            'Codex',
+        'com.arceus.client':           'Arceus X',
+        'com.arceusx.client':          'Arceus X',
+        'com.fluxus.client':           'Fluxus',
+        'com.trigon.client':           'Trigon',
+        'com.hydrogen.client':         'Hydrogen',
+        'com.oxygen.client':           'Oxygen',
+        'com.electron.client':         'Electron',
+        'com.krnl.client':             'KRNL',
+        'com.synapse.client':          'Synapse',
+        'com.vega.client':             'Vega X',
+        'com.solara.client':           'Solara',
+        'com.macsploit.client':        'MacSploit',
+        'com.getblox.client':          'GetBlox',
+        'com.dansploit.client':        'Dansploit',
+        'com.coco.client':             'Coco Z',
+    }
+
     installed = {}
-    print("🔍 Detecting installed Roblox apps...\n")
-    for name, package in browsers.items():
-        if check_package_installed(package):
-            print(f"   ✓ {name}: Installed")
-            installed[name] = package
+    print("🔍 Mendeteksi semua Roblox & Executor...\n")
+
+    # Cek known packages dulu
+    for pkg, name in KNOWN_PACKAGES.items():
+        if check_package_installed(pkg):
+            print(f"   ✓ {name} ({pkg}): Terinstall")
+            installed[name] = pkg
+
+    # Scan otomatis semua package yang mungkin Roblox/executor
+    ok, output = run_root_cmd('pm list packages')
+    if ok and output:
+        for line in output.splitlines():
+            if 'package:' not in line:
+                continue
+            pkg = line.replace('package:', '').strip()
+            # Skip yang sudah ketemu
+            if pkg in installed.values():
+                continue
+            # Cari keyword yang berhubungan Roblox
+            keywords = ['roblox','ronix','albert','delta','codex','arceus',
+                       'fluxus','trigon','hydrogen','oxygen','electron',
+                       'krnl','synapse','vega','solara','macsploit',
+                       'getblox','dansploit','coco','executor','exploit']
+            if any(k in pkg.lower() for k in keywords):
+                name = f"Auto-detect ({pkg})"
+                print(f"   ✓ {name}: Terdeteksi")
+                installed[name] = pkg
+
+    if not installed:
+        print("   ⚠️ Tidak ada Roblox/Executor terdeteksi!")
+        print("   → Coba input manual package name")
+        manual = input("   Package name (contoh: com.ronix.client): ").strip()
+        if manual:
+            installed[f"Manual ({manual})"] = manual
+
     return installed
 
 def find_cookie_databases(package_name):
-    base_path = f"/data/data/{package_name}"
-    found_paths = []
-    print(f"   🔎 Searching inside: {base_path}...")
-    
-    cmds = [
-        f'find {base_path} -type f -name "Cookies" 2>/dev/null',
-        f'find {base_path} -type f -name "cookies.sqlite" 2>/dev/null',
-        f'find {base_path} -type f -name "*cookie*" 2>/dev/null'
+    # Support berbagai path untuk Roblox official, executor, dan modded
+    base_paths = [
+        f"/data/data/{package_name}",
+        f"/data/user/0/{package_name}",
+        f"/data/user_de/0/{package_name}",
+        f"/sdcard/Android/data/{package_name}",
     ]
-    
-    for cmd in cmds:
-        success, output = run_root_cmd(cmd)
-        if success and output:
-            for path in output.split('\n'):
-                path = path.strip()
-                if path and path not in found_paths and not path.endswith('-journal') and not path.endswith('.tmp'):
-                    print(f"      → Found potential DB: {os.path.basename(path)}")
-                    found_paths.append(path)
+    found_paths = []
+
+    for base_path in base_paths:
+        ok, _ = run_root_cmd(f'ls "{base_path}" 2>/dev/null')
+        if not ok:
+            continue
+        print(f"   🔎 Scanning: {base_path}...")
+
+        # Semua kemungkinan nama file cookie
+        cookie_names = [
+            '"Cookies"',
+            '"cookies.sqlite"',
+            '"*cookie*"',
+            '"*Cookie*"',
+            '"*COOKIE*"',
+            '"*.db"',       # beberapa executor simpan di .db biasa
+        ]
+
+        for name in cookie_names:
+            cmd = f'find "{base_path}" -type f -name {name} 2>/dev/null'
+            ok2, output = run_root_cmd(cmd)
+            if ok2 and output:
+                for path in output.split('\n'):
+                    path = path.strip()
+                    if (path and path not in found_paths
+                            and not path.endswith('-journal')
+                            and not path.endswith('.tmp')
+                            and not path.endswith('-shm')
+                            and not path.endswith('-wal')):
+                        print(f"      → Ketemu: {os.path.basename(path)}")
+                        found_paths.append(path)
+
     if not found_paths:
-        print("      ⚠️ No cookie files found.")
+        print(f"      ⚠️ Tidak ada file cookie ditemukan untuk {package_name}")
     return found_paths
 
 def copy_database(db_path, temp_path):
