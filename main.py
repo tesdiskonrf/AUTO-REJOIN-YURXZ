@@ -31,6 +31,28 @@ WHITELIST_PACKAGES = [
     'com.android.bluetooth',
     'com.android.nfc',
     'com.android.wifi',
+    # Roblox official & semua executor — JANGAN PERNAH DIKILL
+    'com.roblox.client',
+    'com.ronix.client',
+    'com.albert.client',
+    'com.albert.1',
+    'com.delta.client',
+    'com.codex.client',
+    'com.arceus.client',
+    'com.arceusx.client',
+    'com.fluxus.client',
+    'com.trigon.client',
+    'com.hydrogen.client',
+    'com.oxygen.client',
+    'com.electron.client',
+    'com.krnl.client',
+    'com.synapse.client',
+    'com.vega.client',
+    'com.solara.client',
+    'com.macsploit.client',
+    'com.getblox.client',
+    'com.dansploit.client',
+    'com.coco.client',
 ]
 
 def clear_screen():
@@ -781,8 +803,11 @@ def start_rejoin_app():
         acc['status'] = 'Starting...'
         draw_ui(accounts, "Launching Accounts", f"[{i+1}/{tot}]")
         
-        run_root_cmd(f"am force-stop {acc['package']}")
-        time.sleep(1)
+        # Cek dulu apakah Roblox sedang jalan, kalau iya skip force-stop
+        ok_pid, running = run_root_cmd(f"pidof {acc['package']}")
+        if not (ok_pid and running.strip()):
+            run_root_cmd(f"am force-stop {acc['package']}")
+            time.sleep(2)
         
         bounds = get_grid_bounds(acc['index'], tot, sw, sh)
         if open_ps_link(acc['ps_link'], acc['package'], bounds):
@@ -795,8 +820,9 @@ def start_rejoin_app():
                 draw_ui(accounts, "Launching Accounts", f"Next in {t}s")
                 time.sleep(1)
                 
-    for t in range(10, 0, -1):
-        draw_ui(accounts, "Initializing", f"Wait {t}s")
+    # Tunggu lebih lama supaya Roblox selesai loading
+    for t in range(30, 0, -1):
+        draw_ui(accounts, "Tunggu Roblox Loading", f"Wait {t}s")
         time.sleep(1)
         
     for a in accounts:
