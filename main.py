@@ -662,6 +662,62 @@ def is_roblox_running(pkg):
     if ok and out.strip(): return True
     ok, out = run_root_cmd(f"ps -A | grep {pkg}")
     return ok and bool(out.strip())
+def screenshot_rejoin(package):
+    """Deteksi tombol Reconnect/Login di layar dan klik otomatis."""
+    try:
+        # Ambil screenshot
+        temp_img = '/data/local/tmp/screen.png'
+        local_img = '/sdcard/roblox_screen.png'
+        ok, _ = run_root_cmd(f'screencap -p {temp_img} && cp {temp_img} {local_img} && chmod 666 {local_img}')
+        if not ok:
+            return False
+
+        # Bawa Roblox ke foreground dulu
+        run_root_cmd(f'am start -p {package} --activity-brought-to-front')
+        time.sleep(1)
+
+        # Dapatkan resolusi layar
+        sw, sh = get_current_resolution()
+
+        # Klik area yang biasanya ada tombol Reconnect (tengah bawah layar)
+        # Posisi umum tombol Reconnect di Roblox
+        reconnect_positions = [
+            (sw // 2, int(sh * 0.65)),   # tengah bawah
+            (sw // 2, int(sh * 0.70)),   # sedikit lebih bawah
+            (sw // 2, int(sh * 0.55)),   # tengah
+        ]
+
+        for x, y in reconnect_positions:
+            run_root_cmd(f'input tap {x} {y}')
+            time.sleep(0.5)
+
+        log_activity(f'Screenshot rejoin attempted for {package}', 'INFO')
+        return True
+    except Exception as e:
+        log_activity(f'Screenshot rejoin error: {e}', 'WARN')
+        return False
+
+def protect_roblox(package):
+    """Cegah sistem Android kill Roblox."""
+    try:
+        # Dapatkan PID Roblox
+        ok, pid = run_root_cmd(f'pidof {package}')
+        if ok and pid.strip():
+            pid = pid.strip().split()[0]
+            # Set OOM score supaya tidak di-kill
+            run_root_cmd(f'echo -1000 > /proc/{pid}/oom_score_adj')
+            # Set priority tinggi
+            run_root_cmd(f'renice -n -10 -p {pid}')
+            # Disable battery optimization
+            run_root_cmd(f'dumpsys deviceidle whitelist +{package}')
+            run_root_cmd(f'cmd appops set {package} RUN_IN_BACKGROUND allow')
+            run_root_cmd(f'cmd appops set {package} RUN_ANY_IN_BACKGROUND allow')
+            return True
+    except:
+        pass
+    return False
+
+
 
 def check_user_presence(uid, cookie):
     try:
@@ -791,11 +847,7 @@ def start_rejoin_app():
             'expected_game': None
         })
 
-    # --- STARTUP: Kill background apps dulu ---
-    draw_ui(accounts, "Killing BG Apps...", "")
-    killed = kill_background_apps(roblox_pkgs)
-    log_activity(f"Startup: killed {killed} background apps", "INFO")
-    time.sleep(1)
+    # Background apps tidak dikill - biarkan sistem yang manage
         
     draw_ui(accounts, "Starting Up...", "")
     
@@ -846,6 +898,9 @@ def start_rejoin_app():
             for i, a in enumerate(accounts):
                 draw_ui(accounts, "Monitoring", f"Check [{i+1}/{tot}]", nxt_wh)
                 
+                # Protect Roblox dari kill sistem setiap check
+                protect_roblox(a['package'])
+                
                 if not is_roblox_running(a['package']):
                     needs_rejoin, reason = True, "App closed"
                 else:
@@ -866,11 +921,6 @@ def start_rejoin_app():
                         draw_ui(accounts, "Webhook", "Sending Crash Status...")
                         send_webhook(wh_url, accounts)
 
-                    # --- FITUR BARU: Kill BG apps & clear cache sebelum rejoin ---
-                    a['status'] = "Killing BG Apps..."
-                    draw_ui(accounts, "Monitoring", f"Cleanup {a['name']}", nxt_wh)
-                    kill_background_apps(roblox_pkgs)
-
                     a['status'] = "Clearing Cache..."
                     draw_ui(accounts, "Monitoring", f"Clear Cache {a['name']}", nxt_wh)
                     clear_roblox_cache(a['package'])
@@ -887,12 +937,20 @@ def start_rejoin_app():
                         
                     a['status'] = "Restarting..."
                     draw_ui(accounts, "Monitoring", f"Fix {a['name']}", nxt_wh)
+
+                    # Cek screenshot dulu - kalau ada tombol reconnect/login, klik itu
+                    screenshot_rejoin(a['package'])
                     
-                    run_root_cmd(f"am force-stop {a['package']}")
-                    time.sleep(2)
-                    open_ps_link(a['ps_link'], a['package'], get_grid_bounds(a['index'], tot, sw, sh))
+                    # Kalau masih tidak jalan, baru force-stop dan buka ulang
+                    if not is_roblox_running(a['package']):
+                        run_root_cmd(f"am force-stop {a['package']}")
+                        time.sleep(2)
+                        open_ps_link(a['ps_link'], a['package'], get_grid_bounds(a['index'], tot, sw, sh))
+                    else:
+                        # Roblox masih jalan, coba klik reconnect button dulu
+                        open_ps_link(a['ps_link'], a['package'], get_grid_bounds(a['index'], tot, sw, sh))
                     
-                    for t in range(25, 0, -1):
+                    for t in range(30, 0, -1):
                         a['status'] = f"Wait Start ({t}s)"
                         draw_ui(accounts, "Monitoring", "Wait Launch", nxt_wh)
                         time.sleep(1)
